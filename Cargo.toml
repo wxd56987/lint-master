@@ -1,0 +1,9 @@
+[package]
+name = "lint_master"
+version = "0.1.0"
+edition = "2021"
+authors = ["kmy"]
+
+[dependencies]
+colored = "2.0"
+regex = "1.5"
