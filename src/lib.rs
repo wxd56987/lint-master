@@ -1,21 +1,17 @@
-use colored::*;
+use comfy_table::*;
 use regex::Regex;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-#[derive(Debug)]
-struct Line<'a> {
-    line_number: usize,
-    content: &'a str,
-}
-
 pub struct Config {
     pub file_paths: Vec<String>,
 }
 
 const TODO_SEARCH: &'static str = "TODO";
+const TODO_IGNORE_SEARCH: &'static str = "IGNORE";
+const CONGRATULATE: &'static str = "Congratulate all passed 🎉🎉🎉";
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Config, &'static str> {
@@ -29,6 +25,7 @@ impl Config {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    println!("\n 🤖 Welcome to Lint Master! \n");
     let file_paths = config.file_paths;
     let mut has_error = false;
 
@@ -38,19 +35,49 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         match get_extension(&file_path) {
             Ok(Some(ext)) => match &ext[..] {
                 "js" | "ts" | "tsx" => {
-                    lint_ts(&file_path);
-                    let mut errors = match_todo(&reader, &file_path);
-                    errors += match_color_use(&reader, &file_path);
-                    errors += match_svg_attribute(&reader, &file_path);
+                    let lint_ts_result = lint_ts(&file_path);
+                    let match_svg_attribute_result = match_svg_attribute(&reader, &file_path);
+                    let match_todo_result = match_todo(&reader);
+
+                    let ts_table = TsTable {
+                        lint_check: lint_ts_result,
+                        svg_check: match_svg_attribute_result,
+                        todo_check: match_todo_result,
+                    };
+
+                    let errors = ts_table.lint_check.errors
+                        + ts_table.svg_check.errors
+                        + ts_table.todo_check.errors;
+
+                    println!("errors is {}", errors);
+
+                    draw_ts_table(&file_path, ts_table);
+
                     if errors > 0 {
                         has_error = true
+                    } else {
+                        std::process::exit(0);
                     }
                 }
                 "go" => {
-                    let mut errors = lint_golang(&file_path);
-                    errors += match_todo(&reader, &file_path);
+                    let lint_go_result = lint_go(&file_path);
+                    let match_todo_result = match_todo(&reader);
+
+                    let go_table = GoTable {
+                        lint_check: lint_go_result,
+                        todo_check: match_todo_result,
+                    };
+
+                    let errors = go_table.lint_check.errors + go_table.todo_check.errors;
+
+                    println!("errors --->>> {}", errors);
+
+                    draw_go_table(&file_path, go_table);
+
                     if errors > 0 {
                         has_error = true
+                    } else {
+                        std::process::exit(0);
                     }
                 }
                 _ => {
@@ -75,96 +102,35 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn match_todo<'a>(contents: &'a str, file_path: &str) -> usize {
-    let mut results = Vec::new();
-    let mut errors = 0;
+struct LintTodo {
+    errors: usize,
+    result: Vec<String>,
+}
+
+fn match_todo<'a>(contents: &'a str) -> LintTodo {
+    let mut result = Vec::new();
     for (line_number, line) in contents.lines().enumerate() {
         if line.contains(TODO_SEARCH) {
-            let line_struct = Line {
-                line_number: line_number + 1,
-                content: line,
-            };
-            results.push(line_struct)
-        }
-    }
-
-    if results.len() > 0 {
-        errors = results.len();
-        println!(
-            "\n 🧐 {} {} search {} result is: {} 👇",
-            "+---------".red().bold(),
-            file_path.green().bold(),
-            "TODO".italic().yellow().bold(),
-            "---------+".red().bold()
-        );
-        for line in results {
-            println!(
-                "\n 👉 {} file has TODO, in {} line {}",
-                file_path, line.line_number, line.content
-            );
-        }
-    } else {
-        println!(
-            "\n 🎉 {} {} no {} find {} ✅",
-            "+---------".blue().bold(),
-            file_path.green().bold(),
-            "TODO".italic().yellow().bold(),
-            "---------+".blue().bold()
-        );
-    }
-
-    errors
-}
-
-fn match_color_use(contents: &str, file_path: &str) -> usize {
-    let mut errors = 0;
-    if file_path.ends_with(".tsx") {
-        let mut results = Vec::new();
-        let re = Regex::new(r#"(?i)\s*#([0-9a-f]{6})\s*"#).unwrap();
-
-        for (line_number, line) in contents.lines().enumerate() {
-            if let Some(_) = re.find(line) {
-                let line_struct = Line {
-                    line_number: line_number + 1,
-                    content: line,
-                };
-                results.push(line_struct)
+            if !line.contains(TODO_IGNORE_SEARCH) {
+                let r = format!("line {} has TODO {}", line_number, line);
+                result.push(r)
             }
         }
-
-        if results.len() > 0 {
-            errors = results.len();
-            println!(
-                "\n 🧐 {} {} {} are not referenced {} 👇",
-                "+---------".red().bold(),
-                file_path.green().bold(),
-                "Color".italic().yellow().bold(),
-                "---------+".red().bold()
-            );
-            for line in results {
-                println!(
-                    "\n 👉 {} file has not referenced color, in {} line {}",
-                    file_path, line.line_number, line.content
-                );
-            }
-        } else {
-            println!(
-                "\n 🎉 {} {} no {} find not referenced {} ✅",
-                "+---------".blue().bold(),
-                file_path.green().bold(),
-                "Color".italic().yellow().bold(),
-                "---------+".blue().bold()
-            );
-        }
     }
-
-    errors
+    LintTodo {
+        errors: result.len(),
+        result: result,
+    }
 }
 
-fn match_svg_attribute(contents: &str, file_path: &str) -> usize {
-    let mut errors = 0;
+struct LintSVG {
+    errors: usize,
+    result: Vec<String>,
+}
+
+fn match_svg_attribute(contents: &str, file_path: &str) -> LintSVG {
+    let mut result = Vec::new();
     if file_path.ends_with(".tsx") {
-        let mut results = Vec::new();
         let attribute_names = vec![
             "fill-rule",
             "clip-rule",
@@ -205,38 +171,21 @@ fn match_svg_attribute(contents: &str, file_path: &str) -> usize {
 
         for attribute_name in &attribute_names {
             let re = Regex::new(&format!(r#"{}"#, attribute_name)).unwrap();
+            let r: String = format!(
+                "need replace {} to {}",
+                attribute_name.to_string(),
+                convert_to_camel_case(attribute_name)
+            );
             if re.is_match(&contents) {
-                results.push(attribute_name);
+                result.push(r);
             }
-        }
-
-        if results.len() > 0 {
-            errors = results.len();
-            println!(
-                "\n 🚗 {} {} {} attribute lint result is: {} 👇",
-                "+---------".red().bold(),
-                file_path.green().bold(),
-                "SVG".italic().yellow().bold(),
-                "---------+".red().bold()
-            );
-            for r in results {
-                println!(
-                    "\n 👉 {} attribute found. Use {} instead",
-                    r,
-                    convert_to_camel_case(r)
-                );
-            }
-        } else {
-            println!(
-                "\n 🎉 {} {} {} lint ok {} ✅",
-                "+---------".blue().bold(),
-                file_path.green().bold(),
-                "SVG".italic().yellow().bold(),
-                "---------+".blue().bold()
-            );
         }
     }
-    errors
+
+    LintSVG {
+        errors: result.len(),
+        result,
+    }
 }
 
 fn convert_to_camel_case(contents: &str) -> String {
@@ -259,60 +208,56 @@ fn convert_to_camel_case(contents: &str) -> String {
     result
 }
 
-fn lint_ts(file_path: &str) -> usize {
+struct LintTs {
+    errors: usize,
+    result: Vec<String>,
+}
+
+fn lint_ts(file_path: &str) -> LintTs {
     let output = Command::new("eslint")
         .arg(file_path)
         .output()
         .expect("Failed to run ESLint");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
-    if output.stdout.len() > 0 {
-        println!(
-            "\n 🚗 {} {} use {} lint result is: {} 👇",
-            "+---------".red().bold(),
-            file_path.green().bold(),
-            "eslint".italic().yellow().bold(),
-            "---------+".red().bold()
-        );
-        println!("\n 👉 {}", String::from_utf8_lossy(&output.stdout));
-    } else {
-        println!(
-            "\n 🎉 {} {} no {} find {} ✅",
-            "+---------".blue().bold(),
-            file_path.green().bold(),
-            "lint".italic().yellow().bold(),
-            "---------+".blue().bold()
-        );
+    let mut result = Vec::new();
+    let re = Regex::new(r"^\s*\d+:\d+\s+error.*").unwrap();
+
+    for line in stdout.lines() {
+        if re.is_match(line) {
+            result.push(line.trim().to_string());
+        }
     }
 
-    output.stdout.len()
+    LintTs {
+        errors: result.len(),
+        result,
+    }
 }
 
-fn lint_golang(file_path: &str) -> usize {
+struct LintGo {
+    errors: usize,
+    result: Vec<String>,
+}
+
+fn lint_go(file_path: &str) -> LintGo {
     let output = Command::new("golangci-lint")
         .args(&["run", &file_path])
         .output()
         .expect("Failed to run golangci-lint");
 
-    if output.stdout.len() > 0 {
-        println!(
-            "\n 🚗 {} {} use {} lint result is: {} 👇",
-            "+---------".blue().bold(),
-            file_path.green().bold(),
-            "golangci-lint".italic().yellow().bold(),
-            "---------+".blue().bold(),
-        );
-        println!("\n 👉 {}", String::from_utf8_lossy(&output.stdout));
-    } else {
-        println!(
-            "\n 🎉 {} {} no {} find {} ✅",
-            "+---------".blue().bold(),
-            file_path.green().bold(),
-            "lint".italic().yellow().bold(),
-            "---------+".blue().bold()
-        );
-    }
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
-    output.stdout.len()
+    let re = Regex::new(r".*?:(\d+:\d+:\s.*?(?:\n\s+.*?)+)").unwrap();
+    let result: Vec<String> = re
+        .captures_iter(&stdout)
+        .map(|cap| cap.get(1).unwrap().as_str().to_string())
+        .collect();
+
+    LintGo {
+        errors: result.len(),
+        result,
+    }
 }
 
 fn get_extension(file_path: &str) -> Result<Option<String>, &'static str> {
@@ -325,4 +270,196 @@ fn get_extension(file_path: &str) -> Result<Option<String>, &'static str> {
         }
     }
     Ok(None)
+}
+
+struct TsTable {
+    lint_check: LintTs,
+    svg_check: LintSVG,
+    todo_check: LintTodo,
+}
+
+fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
+    let mut table = Table::new();
+
+    let TsTable {
+        lint_check,
+        svg_check,
+        todo_check,
+    } = lint;
+
+    let lines_lint: Vec<String> = lint_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+
+    let lines_svg: Vec<String> = svg_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+    let lines_todo: Vec<String> = todo_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+
+    let cell_lint_r = if lines_lint.len() > 0 {
+        lines_lint.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
+    let cell_svg_r = if lines_svg.len() > 0 {
+        lines_svg.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
+    let cell_todo_r = if lines_todo.len() > 0 {
+        lines_todo.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
+    let cell_lint = Cell::new(cell_lint_r);
+    let cell_svg = Cell::new(cell_svg_r);
+    let cell_todo = Cell::new(cell_todo_r);
+
+    let file_name = format!("📃 {}", get_file_name(file_path));
+
+    table
+        .set_header(vec![
+            Cell::new(file_name).fg(Color::Green),
+            Cell::new("🧐 CHECK").fg(Color::Green),
+            Cell::new("🎃 MATCHED").fg(Color::Green),
+            Cell::new("🐝 STATUS").fg(Color::Green),
+        ])
+        .add_row(vec![
+            Cell::new("🍓 ESLINT").fg(Color::Yellow),
+            cell_lint,
+            Cell::new(lint_check.errors.to_string()).fg(status_color(lint_check.errors)),
+            Cell::new(status_emoji(lint_check.errors)),
+        ])
+        .add_row(vec![
+            Cell::new("🥝 SVG").fg(Color::Yellow),
+            cell_svg,
+            Cell::new(svg_check.errors.to_string()).fg(status_color(svg_check.errors)),
+            Cell::new(status_emoji(svg_check.errors)),
+        ])
+        .add_row(vec![
+            Cell::new("🍋 TODO").fg(Color::Yellow),
+            cell_todo,
+            Cell::new(todo_check.errors.to_string()).fg(status_color(todo_check.errors)),
+            Cell::new(status_emoji(todo_check.errors)),
+        ]);
+
+    println!("{table}");
+}
+
+fn status_emoji<'a>(flag: usize) -> &'a str {
+    if flag > 0 {
+        "🔴 "
+    } else {
+        "✅ "
+    }
+}
+
+fn status_color(flag: usize) -> Color {
+    if flag > 0 {
+        Color::Red
+    } else {
+        Color::Green
+    }
+}
+
+struct GoTable {
+    lint_check: LintGo,
+    todo_check: LintTodo,
+}
+
+fn draw_go_table<'a>(file_path: &str, lint: GoTable) {
+    let mut table = Table::new();
+
+    let GoTable {
+        lint_check,
+        todo_check,
+    } = lint;
+
+    let lines_lint: Vec<String> = lint_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+
+    let lines_todo: Vec<String> = todo_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+
+    let cell_lint_r = if lines_lint.len() > 0 {
+        lines_lint.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
+    let cell_todo_r = if lines_todo.len() > 0 {
+        lines_todo.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
+    let cell_lint = Cell::new(cell_lint_r);
+    let cell_todo = Cell::new(cell_todo_r);
+
+    let file_name = format!("📃 {}", get_file_name(file_path));
+
+    table
+        .set_header(vec![
+            Cell::new(file_name).fg(Color::Green),
+            Cell::new("🧐 CHECK").fg(Color::Green),
+            Cell::new("🎃 MATCHED").fg(Color::Green),
+            Cell::new("🐝 STATUS").fg(Color::Green),
+        ])
+        .add_row(vec![
+            Cell::new("🍓 GOLANGCI_LINT").fg(Color::Yellow),
+            cell_lint,
+            Cell::new(lint_check.errors.to_string()).fg(status_color(lint_check.errors)),
+            Cell::new(status_emoji(lint_check.errors)),
+        ])
+        .add_row(vec![
+            Cell::new("🍋 TODO").fg(Color::Yellow),
+            cell_todo,
+            Cell::new(todo_check.errors.to_string()).fg(status_color(todo_check.errors)),
+            Cell::new(status_emoji(todo_check.errors)),
+        ]);
+
+    println!("{table}");
+}
+
+fn overflow_text(long_text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let max_width = 50;
+    for word in long_text.split_whitespace() {
+        if current_line.len() + word.len() + 1 > max_width {
+            lines.push(current_line.clone());
+            current_line.clear();
+        }
+        if !current_line.is_empty() {
+            current_line.push(' ');
+        }
+        current_line.push_str(word);
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    lines
+}
+
+fn get_file_name(file_path: &str) -> &str {
+    let file_name = Path::new(file_path).file_name().unwrap().to_str().unwrap();
+    file_name
 }
