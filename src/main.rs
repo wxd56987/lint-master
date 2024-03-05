@@ -1,6 +1,6 @@
+use lint_master::Config;
 use std::env;
 use std::process;
-use lint_master::Config;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

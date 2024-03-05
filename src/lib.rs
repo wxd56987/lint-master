@@ -44,6 +44,10 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         match get_extension(&file_path) {
             Ok(Some(ext)) => match &ext[..] {
                 "js" | "ts" | "tsx" => {
+                    let file_path_theme: &str = "apps/identity-hub/config/theme.ts";
+                    let reader_color = fs::read_to_string(file_path_theme)?;
+                    let match_color_result = match_tsx_color(&reader_color, &reader);
+
                     let lint_ts_result = lint_ts(&file_path);
                     let match_svg_attribute_result = match_svg_attribute(&reader, &file_path);
                     let match_todo_result = match_todo(&reader);
@@ -52,11 +56,13 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                         lint_check: lint_ts_result,
                         svg_check: match_svg_attribute_result,
                         todo_check: match_todo_result,
+                        color_check: match_color_result,
                     };
 
                     let errors = ts_table.lint_check.errors
                         + ts_table.svg_check.errors
-                        + ts_table.todo_check.errors;
+                        + ts_table.todo_check.errors
+                        + ts_table.color_check.errors;
 
                     draw_ts_table(&file_path, ts_table);
 
@@ -128,6 +134,39 @@ fn match_todo<'a>(contents: &'a str) -> LintTodo {
     }
 }
 
+struct LintTSXColor {
+    errors: usize,
+    result: Vec<String>,
+}
+
+fn match_tsx_color(color_contents: &str, contents: &str) -> LintTSXColor {
+    let mut result = Vec::new();
+    let re_a = Regex::new(r"#[0-9a-fA-F]{6}").unwrap();
+    let mut colors: Vec<String> = Vec::new();
+    for cap in re_a.captures_iter(&contents) {
+        let color_with_equal = &cap[0];
+        colors.push(color_with_equal.to_string());
+    }
+
+    let re_b = Regex::new(r"#[0-9a-fA-F]{6}").unwrap();
+    for line in color_contents.lines() {
+        for cap in re_b.captures_iter(line) {
+            let color = &cap[0];
+            if colors.contains(&color.to_string()) {
+                let r = format!(
+                    "Color {} need replace theme.ts definition",
+                    color.to_string()
+                );
+                result.push(r);
+            }
+        }
+    }
+
+    LintTSXColor {
+        errors: result.len(),
+        result,
+    }
+}
 struct LintSVG {
     errors: usize,
     result: Vec<String>,
@@ -281,6 +320,7 @@ struct TsTable {
     lint_check: LintTs,
     svg_check: LintSVG,
     todo_check: LintTodo,
+    color_check: LintTSXColor,
 }
 
 fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
@@ -290,6 +330,7 @@ fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
         lint_check,
         svg_check,
         todo_check,
+        color_check,
     } = lint;
 
     let mut lines_lint: Vec<String> = lint_check
@@ -309,13 +350,25 @@ fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
         .map(|check| overflow_text(check).join("\n"))
         .collect();
 
+    let mut lines_color: Vec<String> = color_check
+        .result
+        .iter()
+        .map(|check| overflow_text(check).join("\n"))
+        .collect();
+
     for s in lines_lint.iter_mut() {
         *s = format!("🤔 {}", s);
     }
+
     for s in lines_svg.iter_mut() {
         *s = format!("🤔 {}", s);
     }
+
     for s in lines_todo.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
+
+    for s in lines_color.iter_mut() {
         *s = format!("🤔 {}", s);
     }
 
@@ -337,9 +390,16 @@ fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
         CONGRATULATE.to_string()
     };
 
+    let cell_color_r = if lines_color.len() > 0 {
+        lines_color.join("\n")
+    } else {
+        CONGRATULATE.to_string()
+    };
+
     let cell_lint = Cell::new(cell_lint_r);
     let cell_svg = Cell::new(cell_svg_r);
     let cell_todo = Cell::new(cell_todo_r);
+    let cell_color = Cell::new(cell_color_r);
 
     let file_name = format!("📃 {}", get_file_name(file_path));
 
@@ -367,6 +427,12 @@ fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
             cell_todo,
             Cell::new(todo_check.errors.to_string()).fg(status_color(todo_check.errors)),
             Cell::new(status_emoji(todo_check.errors)),
+        ])
+        .add_row(vec![
+            Cell::new("🎨 COLOR").fg(Color::Yellow),
+            cell_color,
+            Cell::new(color_check.errors.to_string()).fg(status_color(color_check.errors)),
+            Cell::new(status_emoji(color_check.errors)),
         ]);
 
     println!("{table}");
