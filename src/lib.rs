@@ -1,3 +1,4 @@
+use colored::Colorize;
 use comfy_table::*;
 use regex::Regex;
 use std::error::Error;
@@ -11,7 +12,15 @@ pub struct Config {
 
 const TODO_SEARCH: &'static str = "TODO";
 const TODO_IGNORE_SEARCH: &'static str = "IGNORE";
-const CONGRATULATE: &'static str = "Congratulate all passed 🎉🎉🎉";
+const CONGRATULATE: &'static str = "✨ Congratulate all passed 🎉🎉🎉";
+const WELCOME: &'static str = r#"
+    __     ____ _   __ ______   __  ___ ___    _____ ______ ______ ____ 
+   / /    /  _// | / //_  __/  /  |/  //   |  / ___//_  __// ____// __ \
+  / /     / / /  |/ /  / /    / /|_/ // /| |  \__ \  / /  / __/  / /_/ /
+ / /___ _/ / / /|  /  / /    / /  / // ___ | ___/ / / /  / /___ / _  _/ 
+/_____//___//_/ |_/  /_/    /_/  /_//_/  |_|/____/ /_/  /_____//_/ |_|  
+                                                                        
+"#;
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Config, &'static str> {
@@ -25,7 +34,7 @@ impl Config {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
-    println!("\n 🤖 Welcome to Lint Master! \n");
+    println!("{}", WELCOME.green().bold());
     let file_paths = config.file_paths;
     let mut has_error = false;
 
@@ -49,8 +58,6 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                         + ts_table.svg_check.errors
                         + ts_table.todo_check.errors;
 
-                    println!("errors is {}", errors);
-
                     draw_ts_table(&file_path, ts_table);
 
                     if errors > 0 {
@@ -69,8 +76,6 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     };
 
                     let errors = go_table.lint_check.errors + go_table.todo_check.errors;
-
-                    println!("errors --->>> {}", errors);
 
                     draw_go_table(&file_path, go_table);
 
@@ -119,7 +124,7 @@ fn match_todo<'a>(contents: &'a str) -> LintTodo {
     }
     LintTodo {
         errors: result.len(),
-        result: result,
+        result,
     }
 }
 
@@ -287,22 +292,32 @@ fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
         todo_check,
     } = lint;
 
-    let lines_lint: Vec<String> = lint_check
+    let mut lines_lint: Vec<String> = lint_check
         .result
         .iter()
         .map(|check| overflow_text(check).join("\n"))
         .collect();
 
-    let lines_svg: Vec<String> = svg_check
+    let mut lines_svg: Vec<String> = svg_check
         .result
         .iter()
         .map(|check| overflow_text(check).join("\n"))
         .collect();
-    let lines_todo: Vec<String> = todo_check
+    let mut lines_todo: Vec<String> = todo_check
         .result
         .iter()
         .map(|check| overflow_text(check).join("\n"))
         .collect();
+
+    for s in lines_lint.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
+    for s in lines_svg.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
+    for s in lines_todo.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
 
     let cell_lint_r = if lines_lint.len() > 0 {
         lines_lint.join("\n")
@@ -386,17 +401,25 @@ fn draw_go_table<'a>(file_path: &str, lint: GoTable) {
         todo_check,
     } = lint;
 
-    let lines_lint: Vec<String> = lint_check
+    let mut lines_lint: Vec<String> = lint_check
         .result
         .iter()
         .map(|check| overflow_text(check).join("\n"))
         .collect();
 
-    let lines_todo: Vec<String> = todo_check
+    let mut lines_todo: Vec<String> = todo_check
         .result
         .iter()
         .map(|check| overflow_text(check).join("\n"))
         .collect();
+
+    for s in lines_lint.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
+
+    for s in lines_todo.iter_mut() {
+        *s = format!("🤔 {}", s);
+    }
 
     let cell_lint_r = if lines_lint.len() > 0 {
         lines_lint.join("\n")
