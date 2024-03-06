@@ -10,6 +10,11 @@ pub struct Config {
     pub file_paths: Vec<String>,
 }
 
+struct LintResult {
+    errors: usize,
+    result: Vec<String>,
+}
+
 const TODO_SEARCH: &'static str = "TODO";
 const TODO_IGNORE_SEARCH: &'static str = "IGNORE";
 const CONGRATULATE: &'static str = "✨ Congratulate all passed 🎉🎉🎉";
@@ -113,12 +118,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct LintTodo {
-    errors: usize,
-    result: Vec<String>,
-}
-
-fn match_todo<'a>(contents: &'a str) -> LintTodo {
+fn match_todo<'a>(contents: &'a str) -> LintResult {
     let mut result = Vec::new();
     for (line_number, line) in contents.lines().enumerate() {
         if line.contains(TODO_SEARCH) {
@@ -128,19 +128,23 @@ fn match_todo<'a>(contents: &'a str) -> LintTodo {
             }
         }
     }
-    LintTodo {
+    LintResult {
         errors: result.len(),
         result,
     }
 }
 
-struct LintTSXColor {
-    errors: usize,
-    result: Vec<String>,
-}
-
-fn match_tsx_color(color_contents: &str, contents: &str) -> LintTSXColor {
+fn match_tsx_color(color_contents: &str, contents: &str) -> LintResult {
     let mut result = Vec::new();
+    let re_s = Regex::new(r"xmlns").unwrap();
+    
+    if re_s.is_match(contents) {
+        return LintResult {
+            errors: result.len(),
+            result,
+        };
+    }
+
     let re_a = Regex::new(r"#[0-9a-fA-F]{6}").unwrap();
     let mut colors: Vec<String> = Vec::new();
     for cap in re_a.captures_iter(&contents) {
@@ -162,17 +166,13 @@ fn match_tsx_color(color_contents: &str, contents: &str) -> LintTSXColor {
         }
     }
 
-    LintTSXColor {
+    LintResult {
         errors: result.len(),
         result,
     }
 }
-struct LintSVG {
-    errors: usize,
-    result: Vec<String>,
-}
 
-fn match_svg_attribute(contents: &str, file_path: &str) -> LintSVG {
+fn match_svg_attribute(contents: &str, file_path: &str) -> LintResult {
     let mut result = Vec::new();
     if file_path.ends_with(".tsx") {
         let attribute_names = vec![
@@ -226,7 +226,7 @@ fn match_svg_attribute(contents: &str, file_path: &str) -> LintSVG {
         }
     }
 
-    LintSVG {
+    LintResult {
         errors: result.len(),
         result,
     }
@@ -252,12 +252,7 @@ fn convert_to_camel_case(contents: &str) -> String {
     result
 }
 
-struct LintTs {
-    errors: usize,
-    result: Vec<String>,
-}
-
-fn lint_ts(file_path: &str) -> LintTs {
+fn lint_ts(file_path: &str) -> LintResult {
     let output = Command::new("eslint")
         .arg(file_path)
         .output()
@@ -273,18 +268,13 @@ fn lint_ts(file_path: &str) -> LintTs {
         }
     }
 
-    LintTs {
+    LintResult {
         errors: result.len(),
         result,
     }
 }
 
-struct LintGo {
-    errors: usize,
-    result: Vec<String>,
-}
-
-fn lint_go(file_path: &str) -> LintGo {
+fn lint_go(file_path: &str) -> LintResult {
     let output = Command::new("golangci-lint")
         .args(&["run", &file_path])
         .output()
@@ -298,7 +288,7 @@ fn lint_go(file_path: &str) -> LintGo {
         .map(|cap| cap.get(1).unwrap().as_str().to_string())
         .collect();
 
-    LintGo {
+    LintResult {
         errors: result.len(),
         result,
     }
@@ -317,10 +307,10 @@ fn get_extension(file_path: &str) -> Result<Option<String>, &'static str> {
 }
 
 struct TsTable {
-    lint_check: LintTs,
-    svg_check: LintSVG,
-    todo_check: LintTodo,
-    color_check: LintTSXColor,
+    lint_check: LintResult,
+    svg_check: LintResult,
+    todo_check: LintResult,
+    color_check: LintResult,
 }
 
 fn draw_ts_table<'a>(file_path: &str, lint: TsTable) {
@@ -455,8 +445,8 @@ fn status_color(flag: usize) -> Color {
 }
 
 struct GoTable {
-    lint_check: LintGo,
-    todo_check: LintTodo,
+    lint_check: LintResult,
+    todo_check: LintResult,
 }
 
 fn draw_go_table<'a>(file_path: &str, lint: GoTable) {
