@@ -1,6 +1,6 @@
 use crate::constants::{
-    LintResult, RE_LINT_GO, RE_LINT_TS, RE_MATCH_COLOR, RE_TSX_THEME_FILE, SVG_ATTRIBUTE_NAMES,
-    TODO_IGNORE_SEARCH, TODO_SEARCH, WELCOME,
+    LintResult, FILE_LINE, RE_LINT_GO, RE_LINT_TS, RE_MATCH_COLOR, RE_TSX_THEME_FILE,
+    SVG_ATTRIBUTE_NAMES, TODO_IGNORE_SEARCH, TODO_SEARCH, WELCOME,
 };
 use crate::draw_table::{DrawTable, GoTable, TsTable};
 use crate::utils::{convert_to_camel_case, get_extension};
@@ -15,7 +15,8 @@ pub struct CheckFile {}
 impl CheckFile {
     pub fn run(file_paths: Vec<String>) -> Result<(), Box<dyn Error>> {
         println!("{}", WELCOME.green().bold());
-        let mut has_error = false;
+        let mut check_errors: u16 = 0;
+        let diff_add_files: Vec<String> = Self::git_add_files();
 
         for file_path in file_paths {
             let reader = fs::read_to_string(&file_path)?;
@@ -25,82 +26,120 @@ impl CheckFile {
                     "js" | "ts" | "tsx" => {
                         let match_color_result = Self::match_tsx_color(&reader)?;
 
-                        let lint_ts_result = Self::lint_ts(&file_path);
+                        let lint_ts_result = Self::lint_ts(&file_path, &mut check_errors);
                         let match_svg_attribute_result =
-                            Self::match_svg_attribute(&reader, &file_path);
-                        let match_todo_result = Self::match_todo(&reader);
+                            Self::match_svg_attribute(&reader, &file_path, &mut check_errors);
+                        let match_todo_result = Self::match_todo(&reader, &mut check_errors);
+                        let match_image_alt = Self::match_image_alt(&reader, &mut check_errors);
+                        let match_a_rel = Self::match_a_rel(&reader, &mut check_errors);
+
+                        let check_file_lines = Self::check_file_lines(
+                            &file_path,
+                            &mut check_errors,
+                            &diff_add_files,
+                            &reader,
+                        );
 
                         let ts_table = TsTable {
                             lint_check: lint_ts_result,
                             svg_check: match_svg_attribute_result,
                             todo_check: match_todo_result,
                             color_check: match_color_result,
+                            image_alt_check: match_image_alt,
+                            a_rel_check: match_a_rel,
+                            file_line_check: check_file_lines,
                         };
 
-                        let errors = ts_table.lint_check.errors
-                            + ts_table.svg_check.errors
-                            + ts_table.todo_check.errors
-                            + ts_table.color_check.errors;
-
                         DrawTable::draw_ts_table(&file_path, ts_table);
-
-                        if errors > 0 {
-                            has_error = true
-                        } else {
-                            std::process::exit(0);
-                        }
                     }
                     "go" => {
                         let lint_go_result = Self::lint_go(&file_path);
-                        let match_todo_result = Self::match_todo(&reader);
+                        let match_todo_result = Self::match_todo(&reader, &mut check_errors);
+                        let check_file_lines = Self::check_file_lines(
+                            &file_path,
+                            &mut check_errors,
+                            &diff_add_files,
+                            &reader,
+                        );
 
                         let go_table = GoTable {
                             lint_check: lint_go_result,
                             todo_check: match_todo_result,
+                            file_line_check: check_file_lines,
                         };
 
-                        let errors = go_table.lint_check.errors + go_table.todo_check.errors;
-
                         DrawTable::draw_go_table(&file_path, go_table);
-
-                        if errors > 0 {
-                            has_error = true
-                        } else {
-                            std::process::exit(0);
-                        }
                     }
                     _ => {
-                        eprintln!("File type not supported.");
-                        std::process::exit(1);
+                        std::process::exit(0);
                     }
                 },
-                Ok(None) => {
-                    has_error = true;
-                }
+                Ok(None) => {}
                 Err(err) => {
                     eprintln!("Error: {}", err);
-                    has_error = true;
+                    std::process::exit(1);
                 }
             }
         }
 
-        if has_error {
+        if check_errors > 0 {
+            println!("All errors total {}", check_errors.to_string().red().bold());
             std::process::exit(1);
+        } else {
+            println!("All errors total {}", check_errors.to_string().green().bold());
         }
 
         Ok(())
     }
 
-    fn match_todo<'a>(contents: &'a str) -> LintResult {
+    fn match_todo<'a>(contents: &'a str, check_errors: &mut u16) -> LintResult {
         let mut result = Vec::new();
         for (line_number, line) in contents.lines().enumerate() {
-            if line.contains(TODO_SEARCH) {
+            let line = line.trim_start();
+            if line.starts_with("//") && line.contains(TODO_SEARCH) {
                 if !line.contains(TODO_IGNORE_SEARCH) {
                     let r = format!("line {} has TODO {}", line_number, line);
-                    result.push(r)
+                    result.push(r);
+                    *check_errors += 1;
                 }
             }
         }
+        LintResult {
+            errors: result.len(),
+            result,
+        }
+    }
+
+    fn match_a_rel<'a>(contents: &'a str, check_errors: &mut u16) -> LintResult {
+        let mut result = Vec::new();
+        let re = Regex::new(r#"href=[^>]*>"#).unwrap();
+        for cap in re.find_iter(&contents) {
+            let line = &contents[cap.start()..cap.end()];
+            if !line.contains("rel=") {
+                let r = format!("a tag need set <rel> value: {}", line);
+                result.push(r);
+                *check_errors += 1;
+            }
+        }
+
+        LintResult {
+            errors: result.len(),
+            result,
+        }
+    }
+
+    fn match_image_alt<'a>(contents: &'a str, check_errors: &mut u16) -> LintResult {
+        let mut result = Vec::new();
+        let re = Regex::new(r#"<Image[^>]*>"#).unwrap();
+        for cap in re.find_iter(&contents) {
+            let line = &contents[cap.start()..cap.end()];
+            if !line.contains("alt=") {
+                let r = format!("img tag need set <alt> value: {}", line);
+                result.push(r);
+                *check_errors += 1;
+            }
+        }
+
         LintResult {
             errors: result.len(),
             result,
@@ -146,7 +185,7 @@ impl CheckFile {
         })
     }
 
-    fn lint_ts(file_path: &str) -> LintResult {
+    fn lint_ts(file_path: &str, check_errors: &mut u16) -> LintResult {
         let output = Command::new("eslint")
             .arg(file_path)
             .output()
@@ -159,7 +198,49 @@ impl CheckFile {
         for line in stdout.lines() {
             if re.is_match(line) {
                 result.push(line.trim().to_string());
+                *check_errors += 1;
             }
+        }
+
+        LintResult {
+            errors: result.len(),
+            result,
+        }
+    }
+
+    fn git_add_files() -> Vec<String> {
+        let mut result = Vec::new();
+        let output = Command::new("git")
+            .arg("status")
+            .arg("--porcelain")
+            .output()
+            .expect("Failed to run golangci-lint");
+
+        let stdout: String = String::from_utf8_lossy(&output.stdout).into_owned();
+
+        for line in stdout.lines() {
+            if line.starts_with("A") {
+                result.push(line.to_string());
+            }
+        }
+
+        result
+    }
+
+    fn check_file_lines(
+        file_path: &str,
+        check_errors: &mut u16,
+        diff_add_files: &Vec<String>,
+        contents: &str,
+    ) -> LintResult {
+        let mut result = Vec::new();
+        let len = contents.lines().count();
+
+        let f = format!("A  {}", &file_path.to_string());
+        if diff_add_files.contains(&f) && len > FILE_LINE as usize {
+            let r = format!("File cannot be larger than {} lines", FILE_LINE);
+            result.push(r);
+            *check_errors += 1;
         }
 
         LintResult {
@@ -188,7 +269,7 @@ impl CheckFile {
         }
     }
 
-    fn match_svg_attribute(contents: &str, file_path: &str) -> LintResult {
+    fn match_svg_attribute(contents: &str, file_path: &str, check_errors: &mut u16) -> LintResult {
         let mut result = Vec::new();
         if file_path.ends_with(".tsx") {
             for attribute_name in &SVG_ATTRIBUTE_NAMES {
@@ -200,6 +281,7 @@ impl CheckFile {
                 );
                 if re.is_match(&contents) {
                     result.push(r);
+                    *check_errors += 1;
                 }
             }
         }

@@ -1,5 +1,6 @@
 pub const TODO_SEARCH: &'static str = "TODO";
 pub const TODO_IGNORE_SEARCH: &'static str = "IGNORE";
+pub const FILE_LINE: u8 = 150;
 pub const CONGRATULATE: &'static str = "✨ Congratulate all passed 🎉🎉🎉";
 pub const WELCOME: &'static str = r#"
     __     ____ _   __ ______   __  ___ ___    _____ ______ ______ ____ 
@@ -20,7 +21,7 @@ pub const RE_LINT_GO: &'static str = r".*?:(\d+:\d+:\s.*?(?:\n\s+.*?)+)";
 pub const RE_MATCH_COLOR: &'static str = r"#[0-9a-fA-F]{6}";
 pub const RE_TSX_THEME_FILE: &'static str = "apps/identity-hub/config/theme.ts";
 
-pub const SVG_ATTRIBUTE_NAMES: [&str; 35] = [
+pub const SVG_ATTRIBUTE_NAMES: [&str; 36] = [
     "fill-rule",
     "clip-rule",
     "fill-opacity",
@@ -56,4 +57,5 @@ pub const SVG_ATTRIBUTE_NAMES: [&str; 35] = [
     "stroke-linejoin",
     "stroke-miterlimit",
     "transform-origin",
+    "stroke-width",
 ];
