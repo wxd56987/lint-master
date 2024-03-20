@@ -6,6 +6,7 @@ use crate::draw_table::{DrawTable, GoTable, TsTable};
 use crate::utils::{convert_to_camel_case, get_extension};
 use colored::Colorize;
 use regex::Regex;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::process::Command;
@@ -24,7 +25,7 @@ impl CheckFile {
             match get_extension(&file_path) {
                 Ok(Some(ext)) => match &ext[..] {
                     "js" | "ts" | "tsx" => {
-                        let match_color_result = Self::match_tsx_color(&reader)?;
+                        let match_color_result = Self::match_tsx_color(&reader, &mut check_errors)?;
 
                         let lint_ts_result = Self::lint_ts(&file_path, &mut check_errors);
                         let match_svg_attribute_result =
@@ -86,7 +87,10 @@ impl CheckFile {
             println!("All errors total {}", check_errors.to_string().red().bold());
             std::process::exit(1);
         } else {
-            println!("All errors total {}", check_errors.to_string().green().bold());
+            println!(
+                "All errors total {}",
+                check_errors.to_string().green().bold()
+            );
         }
 
         Ok(())
@@ -100,10 +104,12 @@ impl CheckFile {
                 if !line.contains(TODO_IGNORE_SEARCH) {
                     let r = format!("line {} has TODO {}", line_number, line);
                     result.push(r);
-                    *check_errors += 1;
                 }
             }
         }
+
+        *check_errors += result.len() as u16;
+
         LintResult {
             errors: result.len(),
             result,
@@ -118,9 +124,10 @@ impl CheckFile {
             if !line.contains("rel=") {
                 let r = format!("a tag need set <rel> value: {}", line);
                 result.push(r);
-                *check_errors += 1;
             }
         }
+
+        *check_errors += result.len() as u16;
 
         LintResult {
             errors: result.len(),
@@ -136,9 +143,10 @@ impl CheckFile {
             if !line.contains("alt=") {
                 let r = format!("img tag need set <alt> value: {}", line);
                 result.push(r);
-                *check_errors += 1;
             }
         }
+
+        *check_errors += result.len() as u16;
 
         LintResult {
             errors: result.len(),
@@ -146,7 +154,10 @@ impl CheckFile {
         }
     }
 
-    fn match_tsx_color(contents: &str) -> Result<LintResult, Box<dyn Error>> {
+    fn match_tsx_color(
+        contents: &str,
+        check_errors: &mut u16,
+    ) -> Result<LintResult, Box<dyn Error>> {
         let color_contents = fs::read_to_string(&RE_TSX_THEME_FILE)?;
         let mut result = Vec::new();
         let re_s = Regex::new(r"xmlns").unwrap();
@@ -178,6 +189,10 @@ impl CheckFile {
                 }
             }
         }
+        let mut unique_result: HashSet<_> = result.drain(..).collect();
+        result.extend(unique_result.drain());
+
+        *check_errors += result.len() as u16;
 
         Ok(LintResult {
             errors: result.len(),
@@ -198,9 +213,10 @@ impl CheckFile {
         for line in stdout.lines() {
             if re.is_match(line) {
                 result.push(line.trim().to_string());
-                *check_errors += 1;
             }
         }
+
+        *check_errors += result.len() as u16;
 
         LintResult {
             errors: result.len(),
@@ -240,8 +256,9 @@ impl CheckFile {
         if diff_add_files.contains(&f) && len > FILE_LINE as usize {
             let r = format!("File cannot be larger than {} lines", FILE_LINE);
             result.push(r);
-            *check_errors += 1;
         }
+
+        *check_errors += result.len() as u16;
 
         LintResult {
             errors: result.len(),
@@ -281,10 +298,11 @@ impl CheckFile {
                 );
                 if re.is_match(&contents) {
                     result.push(r);
-                    *check_errors += 1;
                 }
             }
         }
+
+        *check_errors += result.len() as u16;
 
         LintResult {
             errors: result.len(),
