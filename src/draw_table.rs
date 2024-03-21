@@ -10,6 +10,7 @@ pub struct TsTable {
     pub image_alt_check: LintResult,
     pub a_rel_check: LintResult,
     pub file_line_check: LintResult,
+    pub console_log_check: LintResult,
 }
 
 pub struct GoTable {
@@ -32,6 +33,7 @@ impl DrawTable {
             image_alt_check,
             a_rel_check,
             file_line_check,
+            console_log_check,
         } = lint;
 
         let mut lines_lint: Vec<String> = lint_check
@@ -45,7 +47,14 @@ impl DrawTable {
             .iter()
             .map(|check| overflow_text(check).join("\n"))
             .collect();
+
         let mut lines_todo: Vec<String> = todo_check
+            .result
+            .iter()
+            .map(|check| overflow_text(check).join("\n"))
+            .collect();
+
+        let mut lines_console_log: Vec<String> = console_log_check
             .result
             .iter()
             .map(|check| overflow_text(check).join("\n"))
@@ -87,6 +96,10 @@ impl DrawTable {
             *s = format!("🤔 {}", s);
         }
 
+        for s in lines_console_log.iter_mut() {
+            *s = format!("🤔 {}", s);
+        }
+
         for s in lines_image_alt.iter_mut() {
             *s = format!("🤔 {}", s);
         }
@@ -121,6 +134,12 @@ impl DrawTable {
             CONGRATULATE.to_string()
         };
 
+        let cell_console_log_r = if lines_console_log.len() > 0 {
+            lines_console_log.join("\n")
+        } else {
+            CONGRATULATE.to_string()
+        };
+
         let cell_image_alt_r = if lines_image_alt.len() > 0 {
             lines_image_alt.join("\n")
         } else {
@@ -148,6 +167,7 @@ impl DrawTable {
         let cell_lint = Cell::new(cell_lint_r);
         let cell_svg = Cell::new(cell_svg_r);
         let cell_todo = Cell::new(cell_todo_r);
+        let cell_console_log = Cell::new(cell_console_log_r);
         let cell_image_alt = Cell::new(cell_image_alt_r);
         let cell_a_rel = Cell::new(cell_a_rel_r);
         let cell_file_line = Cell::new(cell_file_line_r);
@@ -179,6 +199,12 @@ impl DrawTable {
                 cell_todo,
                 Cell::new(todo_check.errors.to_string()).fg(status_color(todo_check.errors)),
                 Cell::new(status_emoji(todo_check.errors)),
+            ])
+            .add_row(vec![
+                Cell::new("🍉 CONSOLE_LOG").fg(Color::Yellow),
+                cell_console_log,
+                Cell::new(console_log_check.errors.to_string()).fg(status_color(console_log_check.errors)),
+                Cell::new(status_emoji(console_log_check.errors)),
             ])
             .add_row(vec![
                 Cell::new("🍎 IMAGE_ALT").fg(Color::Yellow),
@@ -248,7 +274,6 @@ impl DrawTable {
         for s in lines_file_check.iter_mut() {
             *s = format!("🤔 {}", s);
         }
-
 
         let cell_lint_r = if lines_lint.len() > 0 {
             lines_lint.join("\n")

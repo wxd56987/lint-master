@@ -1,5 +1,7 @@
 pub const TODO_SEARCH: &'static str = "TODO";
 pub const TODO_IGNORE_SEARCH: &'static str = "IGNORE";
+pub const NECESSARY_CONSOLE_LOGGING: &'static str = "Necessary console logging";
+pub const CONSOLE_LOG: &'static str = "console.log(";
 pub const FILE_LINE: u8 = 150;
 pub const CONGRATULATE: &'static str = "✨ Congratulate all passed 🎉🎉🎉";
 pub const WELCOME: &'static str = r#"

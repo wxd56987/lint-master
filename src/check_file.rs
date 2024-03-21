@@ -1,6 +1,7 @@
 use crate::constants::{
-    LintResult, FILE_LINE, RE_LINT_GO, RE_LINT_TS, RE_MATCH_COLOR, RE_TSX_THEME_FILE,
-    SVG_ATTRIBUTE_NAMES, TODO_IGNORE_SEARCH, TODO_SEARCH, WELCOME,
+    LintResult, CONSOLE_LOG, FILE_LINE, NECESSARY_CONSOLE_LOGGING, RE_LINT_GO, RE_LINT_TS,
+    RE_MATCH_COLOR, RE_TSX_THEME_FILE, SVG_ATTRIBUTE_NAMES, TODO_IGNORE_SEARCH, TODO_SEARCH,
+    WELCOME,
 };
 use crate::draw_table::{DrawTable, GoTable, TsTable};
 use crate::utils::{convert_to_camel_case, get_extension};
@@ -41,6 +42,8 @@ impl CheckFile {
                             &reader,
                         );
 
+                        let match_console_log_result = Self::match_console_log(&reader, &mut check_errors);
+
                         let ts_table = TsTable {
                             lint_check: lint_ts_result,
                             svg_check: match_svg_attribute_result,
@@ -49,6 +52,7 @@ impl CheckFile {
                             image_alt_check: match_image_alt,
                             a_rel_check: match_a_rel,
                             file_line_check: check_file_lines,
+                            console_log_check: match_console_log_result,
                         };
 
                         DrawTable::draw_ts_table(&file_path, ts_table);
@@ -112,6 +116,33 @@ impl CheckFile {
 
         LintResult {
             errors: result.len(),
+            result,
+        }
+    }
+
+    fn match_console_log<'a>(contents: &'a str, check_errors: &mut u16) -> LintResult {
+        let mut match_necessary = 0;
+        let mut match_console = 0;
+        let mut result = Vec::new();
+        for line in contents.lines() {
+            let line = line.trim_start();
+            if line.starts_with("//") && line.contains(NECESSARY_CONSOLE_LOGGING) {
+                match_necessary += 1;
+            }
+            if line.contains(CONSOLE_LOG) {
+                match_console += 1;
+            }
+        }
+
+        let difference = match_console - match_necessary;
+        if difference > 0 {
+            *check_errors += difference;
+            let r = format!("file has {} console.log", difference);
+            result.push(r);
+        }
+
+        LintResult {
+            errors: difference as usize,
             result,
         }
     }
